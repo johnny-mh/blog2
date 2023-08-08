@@ -6,6 +6,7 @@ import { frontmatter } from 'micromark-extension-frontmatter'
 import { mdxFromMarkdown, mdxToMarkdown } from 'mdast-util-mdx'
 import { frontmatterFromMarkdown } from 'mdast-util-frontmatter'
 import { AstroConfig } from 'astro'
+import { Searchable } from './types'
 
 interface FileInfo {
   fileId: string
@@ -44,12 +45,6 @@ export function getFileInfo(id: string, config: AstroConfig): FileInfo {
     fileUrl = appendForwardSlash(fileUrl)
   }
   return { fileId, fileUrl }
-}
-
-export interface Searchable {
-  frontmatter: Record<string, any>
-  content: string
-  fileUrl: string
 }
 
 export function getSearchable(source: string): Omit<Searchable, 'fileUrl'> {

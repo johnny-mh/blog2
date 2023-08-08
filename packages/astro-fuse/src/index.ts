@@ -1,51 +1,28 @@
 import type { AstroConfig, AstroIntegration } from 'astro'
 import Fuse from 'fuse.js'
-import { debounce, map } from 'lodash-es'
 import { createHmac } from 'node:crypto'
+import { debounce, map } from 'lodash-es'
 import { existsSync, mkdirSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { Plugin } from 'vite'
-import { getSearchable, getFileInfo, Searchable } from './util'
-
-export { Searchable } from './util'
-
-declare global {
-  function loadFuse(): Promise<Fuse<Searchable>>
-}
+import { getSearchable, getFileInfo } from './util'
+import { Searchable } from './types'
 
 const PLUGIN_NAME = 'astro-fuse'
 
-export default function astroFuse(
-  fuseIndexOptions: Fuse.IFuseOptions<Searchable> & { injectScript?: boolean }
-): AstroIntegration {
+export default function astroFuse(keys: Fuse.FuseOptionKey<Searchable>[], options?: Fuse.FuseIndexOptions<Searchable>): AstroIntegration {
   let outDir = ''
 
   return {
     name: PLUGIN_NAME,
     hooks: {
-      'astro:config:setup': async ({ config, updateConfig, injectScript }) => {
+      'astro:config:setup': async ({ config, updateConfig }) => {
         outDir = config.outDir.pathname
-
-        if (fuseIndexOptions.injectScript !== false) {
-          injectScript(
-            'page',
-            `window.loadFuse = (options) => 
-  Promise.all([
-    import('fuse.js'),
-    fetch('/fuse.json').then(res => res.json())
-  ]).then(([Fuse, { list, index }]) =>
-    new Fuse.default(
-      list,
-      {...options, keys: [${map(fuseIndexOptions.keys, (key) => `'${key}'`)}]},
-      Fuse.default.parseIndex(index))
-    )`
-          )
-        }
 
         updateConfig({
           vite: {
-            plugins: [fuse(config, fuseIndexOptions)],
+            plugins: [fuse(config, keys, options)],
           },
         })
       },
@@ -65,7 +42,8 @@ export default function astroFuse(
 
 function fuse(
   config: AstroConfig,
-  fuseIndexOptions: Fuse.IFuseOptions<Searchable>
+  keys: Fuse.FuseOptionKey<Searchable>[],
+  options?: Fuse.FuseIndexOptions<Searchable>
 ): Plugin {
   const outDir = config.outDir.pathname
   const outputPath = join(outDir, 'fuse.json')
@@ -92,16 +70,17 @@ function fuse(
 
     if (diff) {
       const list = map(Array.from(result.values()), 1)
-      const index = Fuse.createIndex(fuseIndexOptions.keys ?? [], list)
+      const index = Fuse.createIndex(keys, list, options)
 
       writeFile(outputPath, JSON.stringify({ list, index: index.toJSON() }))
     }
-  }, 1000)
+  }, process.env.NODE_ENV === 'production' ? 0 : 500)
+
 
   return {
     name: PLUGIN_NAME,
     async transform(_, id) {
-      if (!id.match(/mdx?/)) {
+      if (!id.match(/\.mdx?/)) {
         return
       }
 
@@ -109,6 +88,7 @@ function fuse(
       const code = await readFile(fileId, 'utf-8')
       const hash = createHmac('sha256', code).digest('hex').substring(0, 8)
       const content = getSearchable(code)
+
       buffer.set(fileId, [hash, { ...content, fileUrl }])
 
       writeFuseIndex()

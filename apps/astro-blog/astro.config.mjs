@@ -36,7 +36,7 @@ export default defineConfig({
         },
       ],
     }),
-    fuse({ keys: ['content', 'frontmatter.title', 'frontmatter.tags'] }),
+    fuse(['content', 'frontmatter.title', 'frontmatter.tags']),
     partytown({ config: { forward: ['dataLayer.push'] } }),
   ],
   markdown: {

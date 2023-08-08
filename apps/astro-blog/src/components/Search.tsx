@@ -1,6 +1,6 @@
 import Styles from './Search.module.scss'
 
-import { Searchable } from 'astro-fuse'
+import { Searchable, loadFuse } from 'astro-fuse/dist/load'
 import { useStore } from '@nanostores/preact'
 import Fuse from 'fuse.js'
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
@@ -74,7 +74,7 @@ export function Search(props: { tags: Set<string> }) {
   }
 
   useEffect(() => {
-    loadFuse().then((inst) => (fuse.current = inst))
+    loadFuse(['content', 'frontmatter.title', 'frontmatter.tags']).then((inst) => (fuse.current = inst))
   }, [])
 
   useEffect(() => {
