@@ -14,7 +14,6 @@ import robotsTxt from 'astro-robots-txt'
 import { defineConfig } from 'astro/config'
 import glsl from 'vite-plugin-glsl'
 
-import { remarkReadingTime } from './remarks/readingTime.mjs'
 import { remarkSummarize } from './remarks/summarize.mjs'
 
 // https://astro.build/config
@@ -65,7 +64,7 @@ export default defineConfig({
   markdown: {
     processor: unified({
       rehypePlugins: [rehypeFigure],
-      remarkPlugins: [remarkReadingTime, remarkSummarize],
+      remarkPlugins: [remarkSummarize],
     }),
     shikiConfig: {
       theme: 'catppuccin-mocha',

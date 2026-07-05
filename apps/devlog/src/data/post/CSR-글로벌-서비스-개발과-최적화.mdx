@@ -1,0 +1,151 @@
+---
+title: CSR 글로벌 서비스 개발과 최적화
+description: CSR 기반 글로벌 서비스의 개발과 최적화 경험에 대한 이야기
+cover: '../../assets/postImages/202606/30_cover.jpg'
+categories: [Development]
+tags: [CSR, SSR, Tanstack, Frontend, Global Service]
+publishedAt: 2026-06-30T19:52+09:00
+---
+
+# 들어가며
+
+올초 시작한 프로젝트가 성공적으로 배포되고 유입도 순조롭게 늘고 있다. 이 프로젝트는 여러 이유로 초기 개발 검토 과정에서 기존 스택을 버리고 CSR 을 사용하여 개발했고 특히 Client-side Rendering[^1]에 많은 영감을 받았다. 저 글은 이 글에서 자주 언급될것이기에 "영감 문서" 로 하겠다.
+
+그렇게 배포된 앱은 다행히 별 문제가 없었고 LCP, INP 도 크게 무리 없는 수준까지 안정되었기에 지금은 오히려 잘 한 결정이라고 생각한다. 이 글에서는 해당 프로젝트의 개발을 되짚어가며 각 결정과 이유 그리고 결과와 향후 계획 등을 정리해보려고 한다. 사실 [web.dev performance](https://web.dev/learn/performance) 와 중복되는 내용도 많은데 그런 내용보다는 경험과 생각 위주로 적어본다.
+
+개발도 중요하지만 운영 과정에서 추가/수정되는 코드들을 지속적으로 모니터링하는 것도 중요하다. 따라서 이 글은 중간중간 업데이트 될 수 있다.
+
+## 개발 스택 검토
+
+서비스를 안정적으로 운영하려면 개발자가 예상하지 못하는 부분이 없어야 한다. 당시 운영중이던 기술스택은 너무 무거웠고 커버할 역량도 부족한 상황이라 변화가 필요했다. 사실 예전부터 조직의 서비스 운영 통제 역량에 회의적이었어서 전반적인 운영 방향을 SSR 환경에서 불확실성을 줄여 안정성을 꽤하는 방향으로 계획하고 있었다.
+
+위의 내용을 포함 북미 네트워크 속도 통계, 평균적인 react웹 앱의 용량별 LCP 예측 등을 조사하여 검토했고. 결국 Tanstack의 Router와 Query를 사용한 CSR로 개발에 착수하게 되었다.
+
+2025년 북미 네트워크 속도 조사결과 중위속도가 대략 243~298 Mbps 정도[^2] [^3] [^4] 였고. 또 어느곳에서는 100Mbps 이며. 시골의 경우 75Mbps 까지도 떨어질 수 있으나 가변적[^5] 이라는 내용도 있었다. 75Mbps 만 되어도 300KB 의 엔트리 모듈을 가진 웹 앱이 이것 저것 포함하여 대략 1초 정도 소요될것이라 예상하였고. 앱의 성격이 정적인 컨텐츠가 아니라 Discord와 같이 인터렉션이 필요하니 너무 LCP에 집중하기 보다는 INP를 챙겨야 하는 점도 고려했다.
+
+## 서비스 구조
+
+CSR 이라 구조가 복잡할 것이 없다. nginx에 html파일, 다국어 json, service worker 만 여기서 CSP 입힌 채로 서빙되고. 나머지는 번들 과정에서 s3에 업로드하여 서빙한다.
+
+meta 태그는 당연하게도 홈을 기준으로 고정되어 있으며. 컨텐츠 공유 기능을 위해서 nginx 의 특정 경로에만 reverse proxy 로 meta태그 전용 SSR이 붙였다.
+
+이 부분이 아쉽기는 하지만 당장 큰 니즈가 없기도 했고. 당장은 reverse proxy 로 어느정도 대체 가능했으며. 그 고민을 하던 중 [RStack 에서 정식으로 Tanstack Start 도 지원](https://tanstack.com/blog/start-adds-rsbuild-support)하게 되어 추후 필요한 경우 Tanstack Start 로의 마이그레이션을 고려하고 있다.
+
+### Version Skew
+
+html을 제외한 모든 에셋을 별도의 cdn에 유지하면 중간에 파드가 떨어져도 해당 에셋에 접근이 가능하기 때문에 별 문제가 없다. 다만 모든 에셋을 s3에 업로드하는게 애매한 경우가 있어서 파드에서 직접 서빙할 경우 배포 중 파드가 교체될 떄 Version Skew 가 일어날 수 있다. 현재 다국어 파일과 service worker 파일이 그러한 상황이긴 하다.
+
+그런데 재미있는 점은 다국어 파일의 형태가 아직은 영어 단일이고 **키와 값이 똑같다.** 때문에 파일을 못 받은 상태에서는 키 값을 그대로 쓰기 때문에 당장 별 문제가 없다. 실 사용 환경에서는 Version Skew 가 좀 덜 일어나기도 하고 있어서 아직 급하게 전체를 CDN 처리하지는 않고 있지만 조만간 그리 될 것 같다.
+
+## Service Worker Cache
+
+두 번째 번들 다운로드는 사용자 브라우저에 붙은 서비스워커의 캐시로부터 받게 하는 작업이다. 처음엔 영감 문서를 참고로 캐싱되어야 하는 번들 목록을 index.html 에 삽입된 script 태그들에서 추출하고 이를 service-worker.js 내부에 삽입하여 사용하도록 직접 구현했는데, 서비스워커가 생각보다 API 명세가 모호하고 실제로 캐싱된 파일을 조회하면 용량이 0KB 인 등 알려진 문제들이 있었다.
+
+그런데 찾아보니 대부분의 번들러가 이미 [workbox](https://web.dev/learn/pwa/workbox?hl=ko) 라는 이름의 플러그인으로 제공하고 있어서 그냥 사용하기만 하면 되었다. 번들 중간에 어떤 스크립트가 entry 인줄 알고 있으니 스스로 service-worker.js 를 만들어낸다. 다만 이 플러그인을 사용하면 서비스워커를 활용한 알림을 쓰려면 로직만 참고해서 확장해야한다.
+
+겪었던 문제 중에는 workbox 사용 옵션 중 [inlineWorkboxRuntime](https://developer.chrome.com/docs/workbox/modules/workbox-webpack-plugin?hl=ko#property-GenerateSWConfig-inlineWorkboxRuntime) 에 있었다. 이 옵션은 서비스 워커 코드에서 변경이 없는 부분과 번들될 때 마다 변경되는 부분을 별도의 파일로 분리하는 옵션이고 기본적으로 켜져 있다. 그런데 나는 서비스 워커를 nginx 파드에서 서빙하다보니. 파드가 교체되는 순간에 Version Skew 로 js 파일 요청이 씹히는 경우가 있었는데 파일이 2개씩이다 보니 그 빈도가 높았다. 그래서 저 옵션을 꺼서 하나의 파일로 서빙되도록 수정하여 해소했다.
+
+근데 사실 서비스워커 파일도 s3 에 배포해도 되지 않을까 생각하고 있다.
+
+## Prefetch, Resource Inlining
+
+엔트리 모듈의 다운로드가 중요하기에 번들이 끝난 뒤 생성된 index.html 에 박힌 script 들을 추출하여 nginx.conf 의 Link 헤더를 세팅했다. [resource prefetch는 사실 선택지가 2개](https://web.dev/articles/codelab-two-ways-to-prefetch)인데 아무래도 헤더가 뭔가 효과가 있지 않을까 해서 선택했지만 문서에서는 차이가 미미하다고 한다.
+
+사실 이걸 빼고 워터폴 차트를 확인하진 않았지만 영감 문서에 보면 스크립트 다운로드 시작 시점이 앞당겨진 것을 볼 수 있다.
+
+웹 폰트는 Inter, Lora 두개 사용하는데 모두 html 에서 `<link>` 로 사용하는게 아니라 그냥 html 에 적혀있다. 그리고 당연하게도 폰트를 포함해서 cdn에 대해 DNS 연결을 미리 할 수 있도록 리소스 힌트도 세팅했다.
+
+또한 홈 컨텐츠를 보여주려면 특정 API 를 최소 2회 호출해야 하는 상황인데. 첫 API의 경우 URL이 고정이라 이 역시 prefetch 할 수 있었다. 근데 이 리소스를 HTML태그로 prefetch 시도하니 CORP를 cross-origin으로 변경해야 했다. 관련해 협조를 구했지만 우선순위에 밀려 적용되지 않고 있다가. 갑자기 기획이 변경되에 이 API 에 쿼리 파라미터를 붙여야만 하는 상황이 발생해 결국 적용할 수 없게 되었다. 비즈니스 의사 결정이라 어쩔 수 없었던 부분이라 여러모로 아쉬웠다.
+
+## RStack
+
+이번 프로젝트에서는 rsbuild를 사용했다. 사실 특별한 이유가 있던 건 아니고 번들러가 다 거기서 거기인데 module federation 을 지원한다는 점, 그리고 ant design 으로부터 쌓아온 중국 오픈소스에 대한 신뢰(?) 등이 한몫 했다. 실 사용에 전혀 불편했던 점이 없고 빠른 것도 이유이다.
+
+그런데 이 RStack 에 아주 기가막힌 도구가 등장했는데 바로 rsdoctor 이다. 거기다 AI붐이 일면서 이 **rsdoctor 에 MCP 가 붙었는데 이게 아주 야무지다.**
+
+### FSD
+
+참조 규칙 정도는 필요하다 생각해 FSD를 적용했다. Feature와 Widget의 구분은 사실 중요한게 아니고 그냥 나중에 코드가 매우 힘들어지는 것을 예방하고 AX 도 고려해서였다.
+
+또 eslint 로는 FSD의 모든 규칙을 모두 커버할 수 없다. 웹 상에 떠도는 FSD관련 eslint 플러그인들은 다 반쪽짜리도 안되는 도움이 전혀 안되는 도구들이다. 심지어 FSD 공식 eslint 플러그인도 운영을 멈춘 지 오래다.
+
+대신 steiger 라는 도구를 개발하고 있는데. 이 도구만이 현존하는 FSD의 모든 규칙을 검사한다. 이유는 언뜻 본것같은데 eslint 는 코드 레벨에서의 검사를 위한 인터페이스여서 FSD처럼 파일시스템 레벨에서의 정교한 검사를 구현하고 표현하는데는 제약사항이 많았다고 했단다.
+
+FSD를 준수하려면 반드시 steiger를 사용해야 한다. 다만 eslint 처럼 바로 피드백을 받기 어렵기 때문에 아래 처럼 별도 프로세스로 띄우도록 하여 사용했다.
+
+```json
+{
+  "scripts": {
+    "dev": "concurrently -p \"[{name}]\" -n \"APP,FSD\" -c \"black.bgBlue.bold,black.bgRed.bold\" \"rsbuild dev --port 3000\" \"steiger ./src --watch\" ",
+  }
+}
+```
+
+### Barrel Export 문제
+
+rsdoctor 와 FSD를 함께 언급한건 이 경험을 풀기 위한 빌드업이었다. 개발 도중 틈틈히 엔트리 모듈의 크기를 측정하고 있었는데 이상하리만큼 큰 용량이 출력되었다.
+
+React 가 아무리 많아도 160KB. 그 외외에 Tasntack 제품이 60KB, 이것 저것 80KB 해서 대략 300KB 근처여야 하는데 홈 페이지 진입시에 그보다 더 큰 모듈이 static으로 잡혀있었던 것이다.
+
+알고보니 Barrel Export 의 모듈이 트리셰이킹 되지 않고 변수 하나만 import 해도 다 딸려오는 문제 때문이었다.
+
+```js
+// a/ui/button.ts
+export const Button = () => {}
+
+// a/util.ts
+export const add = (a, b) => {}
+
+// a/index.ts
+export { Button } from './ui/button'
+export { add } from './util'
+
+//
+// route/index.tsx
+import { add } from './a'
+```
+
+위 코드에서 홈 페이지에서는 Button을 쓰지 않더라도 Button코드까지 합쳐진다. 이걸 다룬 글들은 이미 많긴한데. 개발을 혼자 하는게 아니고 사람은 이쁜코드를 찾는 경향이 있다보니 이 글을 보는 여러분의 코드에도 이미 있을 확률이 높다 본다.
+
+보통 하나의 도메인에 페이지/모달을 개발하고. 모달의 경우 다른 도메인에서도 가져다 사용하는 경우가 많은데 이 부분을 주의하지 않으면 모달만 쓰려다 페이지 코드도 딸려간다.
+
+FSD 기준이라면 이는 슬라이스 그룹으로 쪼개면 된다. a/ui-components 와 a/utilities 로 쪼개고 barral 을 나누는 것이다.
+
+```js
+// a/ui-components/ui/button.tsx
+export const Button = () => {}
+// a/ui-components/index.ts
+export { Button } from './ui/button'
+
+// a/utilities/add.ts
+export const add = (a, b) => {}
+// a/utilities/index.ts
+export { add } from './add'
+
+//
+// route/index.ts
+import { add } from './a/utilities'
+```
+
+물론 슬라이스 그룹 내에서도 트리셰이킹이 안된다는 문제가 있지만 그것은 상황에 따라서 분리하는 등으로 잘 조절해야 한다.
+
+이 작업을 처음에 손으로 하다가. LLM에게 시켰는데 패턴 매칭으로 찾아 수정하다보니 정확도가 조금 떨어지는 문제가 있었는데. rsdoctor MCP로 오차 없이 한방에 수정하였다.
+
+rsdoctor MCP 는 이 뿐만 아니라 실제로 엔트리에서 불필요한 패키지와 코드들을 추가로 검출했고 상황에 맞게 번들 청킹 전략도 수정해주었다.
+
+## 유휴시간에 모든 번들을 미리 받게하는게 도움이 될까?
+
+다른 번들러도 그러겠지만 rsbuild도 index.html 에 번들된 스크립트를 옵션에 따라서 다양하게 설정할 수 있다. 옵션 중에 async번들들을 페이지 진입 후 유휴시간이라 판단될 때 모조리 받아두게 하는 옵션이 있는데. 처음에는 해당 옵션을 켠 상태로 운영했다.
+
+그런데 수집되는 리포트를 보니. 단말별로 LCP가 천차만별이었다. 구 버전 OS의 경우 대부분 성능이 떨어졌고. 서빙되는 페이지 중 일부는 웹뷰에서도 사용하는데. 이 환경에서도 안 좋은 결과가 나타났다.
+
+반대로 데스크톱이나, 최근 OS에서는 LCP가 매우 양호하게 수집되었다. 해당 옵션은 기기별, 환경별 성능 편차가 심했다. 워터폴 차트를 보았더니 async 번들들의 다운로드가 일부 LCP로 측정되는 리소스 다운로드를 지연시키고 있었다.
+
+결국 해당 옵션을 끄고 필요한 순간에만 다운로드받도록 하는 것으로 LCP를 절반 이상 개선할 수 있었다.
+
+
+[^1]: https://github.com/theninthsky/client-side-rendering
+[^2]: https://www.allconnect.com/blog/us-internet-speeds-globally
+[^3]: https://www.statista.com/statistics/896772/countries-fastest-average-fixed-broadband-internet-speeds/
+[^4]: https://www.highspeedinternet.com/resources/fastest-slowest-internet
+[^5]: https://www.reddit.com/r/Calyx/comments/1l4i8d2/average_speeds_in_2025_could_only_find_speeds_on/

@@ -1,5 +1,4 @@
 export interface Frontmatter {
-  readingTime: number
   summary: string
   title: string
 }
