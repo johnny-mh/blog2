@@ -1,4 +1,4 @@
-name: Publish johnnydev
+name: Publish blog
 on:
   push:
     branches:
