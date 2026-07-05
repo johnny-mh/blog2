@@ -17,7 +17,7 @@ publishedAt: 2026-06-30T19:52+09:00
 
 ## 개발 스택 검토
 
-서비스를 안정적으로 운영하려면 개발자가 예상하지 못하는 부분이 없어야 한다. 당시 운영중이던 기술스택은 너무 무거웠고 커버할 역량도 부족한 상황이라 변화가 필요했다. 사실 예전부터 조직의 서비스 운영 통제 역량에 회의적이었어서 전반적인 운영 방향을 SSR 환경에서 불확실성을 줄여 안정성을 꽤하는 방향으로 계획하고 있었다.
+서비스를 안정적으로 운영하려면 개발자가 예상하지 못하는 부분이 없어야 한다. 당시 운영중이던 기술스택은 너무 무거웠고 리소스도 부족한 상황이라 변화가 필요했다. 사실 이전부터 전반적인 운영 방향을 SSR 환경에서 불확실성을 줄여 안정성을 꽤하는 방향으로 계획하고 있던터라 바로 진행했다.
 
 위의 내용을 포함 북미 네트워크 속도 통계, 평균적인 react웹 앱의 용량별 LCP 예측 등을 조사하여 검토했고. 결국 Tanstack의 Router와 Query를 사용한 CSR로 개발에 착수하게 되었다.
 
@@ -76,7 +76,7 @@ FSD를 준수하려면 반드시 steiger를 사용해야 한다. 다만 eslint �
 ```json
 {
   "scripts": {
-    "dev": "concurrently -p \"[{name}]\" -n \"APP,FSD\" -c \"black.bgBlue.bold,black.bgRed.bold\" \"rsbuild dev --port 3000\" \"steiger ./src --watch\" ",
+    "dev": "concurrently -p \"[{name}]\" -n \"APP,FSD\" -c \"black.bgBlue.bold,black.bgRed.bold\" \"rsbuild dev --port 3000\" \"steiger ./src --watch\" "
   }
 }
 ```
@@ -142,7 +142,6 @@ rsdoctor MCP 는 이 뿐만 아니라 실제로 엔트리에서 불필요한 패
 반대로 데스크톱이나, 최근 OS에서는 LCP가 매우 양호하게 수집되었다. 해당 옵션은 기기별, 환경별 성능 편차가 심했다. 워터폴 차트를 보았더니 async 번들들의 다운로드가 일부 LCP로 측정되는 리소스 다운로드를 지연시키고 있었다.
 
 결국 해당 옵션을 끄고 필요한 순간에만 다운로드받도록 하는 것으로 LCP를 절반 이상 개선할 수 있었다.
-
 
 [^1]: https://github.com/theninthsky/client-side-rendering
 [^2]: https://www.allconnect.com/blog/us-internet-speeds-globally
