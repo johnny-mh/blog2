@@ -13,6 +13,8 @@ publishedAt: 2026-06-30T19:52+09:00
 
 그렇게 배포된 앱은 다행히 별 문제가 없었고 LCP, INP 도 크게 무리 없는 수준까지 안정되었기에 지금은 오히려 잘 한 결정이라고 생각한다. 이 글에서는 해당 프로젝트의 개발을 되짚어가며 각 결정과 이유 그리고 결과와 향후 계획 등을 정리해보려고 한다. 사실 [web.dev performance](https://web.dev/learn/performance) 와 중복되는 내용도 많은데 그런 내용보다는 경험과 생각 위주로 적어본다.
 
+개발도 중요하지만 운영 과정에서 추가/수정되는 코드들을 지속적으로 모니터링하는 것도 중요하다. 따라서 이 글은 중간중간 업데이트 될 수 있다.
+
 ## 개발 스택 검토
 
 서비스를 안정적으로 운영하려면 개발자가 예상하지 못하는 부분이 없어야 한다. 당시 운영중이던 기술스택은 너무 무거웠고 커버할 역량도 부족한 상황이라 변화가 필요했다. 사실 예전부터 조직의 서비스 운영 통제 역량에 회의적이었어서 전반적인 운영 방향을 SSR 환경에서 불확실성을 줄여 안정성을 꽤하는 방향으로 계획하고 있었다.
@@ -69,6 +71,16 @@ html을 제외한 모든 에셋을 별도의 cdn에 유지하면 중간에 파�
 
 대신 steiger 라는 도구를 개발하고 있는데. 이 도구만이 현존하는 FSD의 모든 규칙을 검사한다. 이유는 언뜻 본것같은데 eslint 는 코드 레벨에서의 검사를 위한 인터페이스여서 FSD처럼 파일시스템 레벨에서의 정교한 검사를 구현하고 표현하는데는 제약사항이 많았다고 했단다.
 
+FSD를 준수하려면 반드시 steiger를 사용해야 한다. 다만 eslint 처럼 바로 피드백을 받기 어렵기 때문에 아래 처럼 별도 프로세스로 띄우도록 하여 사용했다.
+
+```json
+{
+  "scripts": {
+    "dev": "concurrently -p \"[{name}]\" -n \"APP,FSD\" -c \"black.bgBlue.bold,black.bgRed.bold\" \"rsbuild dev --port 3000\" \"steiger ./src --watch\" ",
+  }
+}
+```
+
 ### Barrel Export 문제
 
 rsdoctor 와 FSD를 함께 언급한건 이 경험을 풀기 위한 빌드업이었다. 개발 도중 틈틈히 엔트리 모듈의 크기를 측정하고 있었는데 이상하리만큼 큰 용량이 출력되었다.
@@ -121,15 +133,19 @@ import { add } from './a/utilities'
 
 rsdoctor MCP 는 이 뿐만 아니라 실제로 엔트리에서 불필요한 패키지와 코드들을 추가로 검출했고 상황에 맞게 번들 청킹 전략도 수정해주었다.
 
----
+## 유휴시간에 모든 번들을 미리 받게하는게 도움이 될까?
 
-[^1]: <https://github.com/theninthsky/client-side-rendering>
+다른 번들러도 그러겠지만 rsbuild도 index.html 에 번들된 스크립트를 옵션에 따라서 다양하게 설정할 수 있다. 옵션 중에 async번들들을 페이지 진입 후 유휴시간이라 판단될 때 모조리 받아두게 하는 옵션이 있는데. 처음에는 해당 옵션을 켠 상태로 운영했다.
 
-[^2]: <https://www.allconnect.com/blog/us-internet-speeds-globally>
+그런데 수집되는 리포트를 보니. 단말별로 LCP가 천차만별이었다. 구 버전 OS의 경우 대부분 성능이 떨어졌고. 서빙되는 페이지 중 일부는 웹뷰에서도 사용하는데. 이 환경에서도 안 좋은 결과가 나타났다.
 
-[^3]: <https://www.statista.com/statistics/896772/countries-fastest-average-fixed-broadband-internet-speeds/>
+반대로 데스크톱이나, 최근 OS에서는 LCP가 매우 양호하게 수집되었다. 해당 옵션은 기기별, 환경별 성능 편차가 심했다. 워터폴 차트를 보았더니 async 번들들의 다운로드가 일부 LCP로 측정되는 리소스 다운로드를 지연시키고 있었다.
 
-[^4]: <https://www.highspeedinternet.com/resources/fastest-slowest-internet>
+결국 해당 옵션을 끄고 필요한 순간에만 다운로드받도록 하는 것으로 LCP를 절반 이상 개선할 수 있었다.
 
-[^5]: <https://www.reddit.com/r/Calyx/comments/1l4i8d2/average_speeds_in_2025_could_only_find_speeds_on/>
 
+[^1]: https://github.com/theninthsky/client-side-rendering
+[^2]: https://www.allconnect.com/blog/us-internet-speeds-globally
+[^3]: https://www.statista.com/statistics/896772/countries-fastest-average-fixed-broadband-internet-speeds/
+[^4]: https://www.highspeedinternet.com/resources/fastest-slowest-internet
+[^5]: https://www.reddit.com/r/Calyx/comments/1l4i8d2/average_speeds_in_2025_could_only_find_speeds_on/
