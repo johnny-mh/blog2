@@ -63,7 +63,7 @@ html을 제외한 모든 에셋을 별도의 cdn에 유지하면 중간에 파�
 
 ### FSD
 
-참조 규칙 정도는 필요하다 생각해 FSD를 적용했다. Feature와 Widget의 구분은 사실 중요한게 아니고 그냥 나중에 코드가 매우 힘들어지는 것을 예방하고 AX 도 고려해서였다. 
+참조 규칙 정도는 필요하다 생각해 FSD를 적용했다. Feature와 Widget의 구분은 사실 중요한게 아니고 그냥 나중에 코드가 매우 힘들어지는 것을 예방하고 AX 도 고려해서였다.
 
 또 eslint 로는 FSD의 모든 규칙을 모두 커버할 수 없다. 웹 상에 떠도는 FSD관련 eslint 플러그인들은 다 반쪽짜리도 안되는 도움이 전혀 안되는 도구들이다. 심지어 FSD 공식 eslint 플러그인도 운영을 멈춘 지 오래다.
 
@@ -71,14 +71,65 @@ html을 제외한 모든 에셋을 별도의 cdn에 유지하면 중간에 파�
 
 ### Barrel Export 문제
 
-rsdoctor 와 FSD를 함께 언급한건 이 경험을 풀기 위한 빌드업이었다.
+rsdoctor 와 FSD를 함께 언급한건 이 경험을 풀기 위한 빌드업이었다. 개발 도중 틈틈히 엔트리 모듈의 크기를 측정하고 있었는데 이상하리만큼 큰 용량이 출력되었다.
 
+React 가 아무리 많아도 160KB. 그 외외에 Tasntack 제품이 60KB, 이것 저것 80KB 해서 대략 300KB 근처여야 하는데 홈 페이지 진입시에 그보다 더 큰 모듈이 static으로 잡혀있었던 것이다.
 
+알고보니 Barrel Export 의 모듈이 트리셰이킹 되지 않고 변수 하나만 import 해도 다 딸려오는 문제 때문이었다.
 
+```js
+// a/ui/button.ts
+export const Button = () => {}
 
+// a/util.ts
+export const add = (a, b) => {}
 
-[^1]: https://github.com/theninthsky/client-side-rendering
-[^2]: https://www.allconnect.com/blog/us-internet-speeds-globally
-[^3]: https://www.statista.com/statistics/896772/countries-fastest-average-fixed-broadband-internet-speeds/
-[^4]: https://www.highspeedinternet.com/resources/fastest-slowest-internet
-[^5]: https://www.reddit.com/r/Calyx/comments/1l4i8d2/average_speeds_in_2025_could_only_find_speeds_on/
+// a/index.ts
+export { Button } from './ui/button'
+export { add } from './util'
+
+//
+// route/index.tsx
+import { add } from './a'
+```
+
+위 코드에서 홈 페이지에서는 Button을 쓰지 않더라도 Button코드까지 합쳐진다. 이걸 다룬 글들은 이미 많긴한데. 개발을 혼자 하는게 아니고 사람은 이쁜코드를 찾는 경향이 있다보니 이 글을 보는 여러분의 코드에도 이미 있을 확률이 높다 본다.
+
+보통 하나의 도메인에 페이지/모달을 개발하고. 모달의 경우 다른 도메인에서도 가져다 사용하는 경우가 많은데 이 부분을 주의하지 않으면 모달만 쓰려다 페이지 코드도 딸려간다.
+
+FSD 기준이라면 이는 슬라이스 그룹으로 쪼개면 된다. a/ui-components 와 a/utilities 로 쪼개고 barral 을 나누는 것이다.
+
+```js
+// a/ui-components/ui/button.tsx
+export const Button = () => {}
+// a/ui-components/index.ts
+export { Button } from './ui/button'
+
+// a/utilities/add.ts
+export const add = (a, b) => {}
+// a/utilities/index.ts
+export { add } from './add'
+
+//
+// route/index.ts
+import { add } from './a/utilities'
+```
+
+물론 슬라이스 그룹 내에서도 트리셰이킹이 안된다는 문제가 있지만 그것은 상황에 따라서 분리하는 등으로 잘 조절해야 한다.
+
+이 작업을 처음에 손으로 하다가. LLM에게 시켰는데 패턴 매칭으로 찾아 수정하다보니 정확도가 조금 떨어지는 문제가 있었는데. rsdoctor MCP로 오차 없이 한방에 수정하였다.
+
+rsdoctor MCP 는 이 뿐만 아니라 실제로 엔트리에서 불필요한 패키지와 코드들을 추가로 검출했고 상황에 맞게 번들 청킹 전략도 수정해주었다.
+
+---
+
+[^1]: <https://github.com/theninthsky/client-side-rendering>
+
+[^2]: <https://www.allconnect.com/blog/us-internet-speeds-globally>
+
+[^3]: <https://www.statista.com/statistics/896772/countries-fastest-average-fixed-broadband-internet-speeds/>
+
+[^4]: <https://www.highspeedinternet.com/resources/fastest-slowest-internet>
+
+[^5]: <https://www.reddit.com/r/Calyx/comments/1l4i8d2/average_speeds_in_2025_could_only_find_speeds_on/>
+
