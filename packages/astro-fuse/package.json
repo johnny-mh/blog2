@@ -1,6 +1,6 @@
 {
   "name": "astro-fuse",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Use Fuse.js to search documents in your Astro site",
   "keywords": [
     "astro-integration",
