@@ -45,7 +45,7 @@ html을 제외한 모든 에셋을 별도의 cdn에 유지하면 중간에 파�
 
 겪었던 문제 중에는 workbox 사용 옵션 중 [inlineWorkboxRuntime](https://developer.chrome.com/docs/workbox/modules/workbox-webpack-plugin?hl=ko#property-GenerateSWConfig-inlineWorkboxRuntime) 에 있었다. 이 옵션은 서비스 워커 코드에서 변경이 없는 부분과 번들될 때 마다 변경되는 부분을 별도의 파일로 분리하는 옵션이고 기본적으로 켜져 있다. 그런데 나는 서비스 워커를 nginx 파드에서 서빙하다보니. 파드가 교체되는 순간에 Version Skew 로 js 파일 요청이 씹히는 경우가 있었는데 파일이 2개씩이다 보니 그 빈도가 높았다. 그래서 저 옵션을 꺼서 하나의 파일로 서빙되도록 수정하여 해소했다.
 
-근데 사실 서비스워커 파일도 s3 에 배포해도 되지 않을까 생각하고 있다.
+~근데 사실 서비스워커 파일도 s3 에 배포해도 되지 않을까 생각하고 있다.~ 서비스워커는 스크립트 URL이 페이지와 동일 origin 이어야 함.
 
 ## Prefetch, Resource Inlining
 
